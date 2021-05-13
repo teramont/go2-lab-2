@@ -13,6 +13,12 @@ import (
 	"github.com/roman-mazur/design-practice-2-template/signal"
 )
 
+type Server struct {
+    Url string
+    Alive bool
+    Connections uint64
+}
+
 var (
 	port = flag.Int("port", 8090, "load balancer port")
 	timeoutSec = flag.Int("timeout-sec", 3, "request timeout time in seconds")
@@ -23,10 +29,10 @@ var (
 
 var (
 	timeout = time.Duration(*timeoutSec) * time.Second
-	serversPool = []string{
-		"server1:8080",
-		"server2:8080",
-		"server3:8080",
+	serversPool = []Server{
+		Server { Url: "server1:8080", Alive: false, Connections: 0 },
+		Server { Url: "server2:8080", Alive: false, Connections: 0 },
+		Server { Url: "server3:8080", Alive: false, Connections: 0 },
 	}
 )
 
@@ -87,19 +93,18 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 func main() {
 	flag.Parse()
 
-	// TODO: Використовуйте дані про стан сервреа, щоб підтримувати список тих серверів, яким можна відправляти ззапит.
-	for _, server := range serversPool {
-		server := server
+	for i := range serversPool {
+		i := i
 		go func() {
 			for range time.Tick(10 * time.Second) {
-				log.Println(server, health(server))
+				serversPool[i].Alive = health(serversPool[i].Url)
 			}
 		}()
 	}
 
 	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		// TODO: Рееалізуйте свій алгоритм балансувальника.
-		forward(serversPool[0], rw, r)
+		forward(serversPool[0].Url, rw, r)
 	}))
 
 	log.Println("Starting load balancer...")

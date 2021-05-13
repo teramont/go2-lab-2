@@ -14,25 +14,25 @@ import (
 )
 
 type Server struct {
-    Url string
-    Alive bool
-    Connections uint64
+	Url         string
+	Alive       bool
+	Connections uint64
 }
 
 var (
-	port = flag.Int("port", 8090, "load balancer port")
+	port       = flag.Int("port", 8090, "load balancer port")
 	timeoutSec = flag.Int("timeout-sec", 3, "request timeout time in seconds")
-	https = flag.Bool("https", false, "whether backends support HTTPs")
+	https      = flag.Bool("https", false, "whether backends support HTTPs")
 
 	traceEnabled = flag.Bool("trace", false, "whether to include tracing information into responses")
 )
 
 var (
-	timeout = time.Duration(*timeoutSec) * time.Second
+	timeout     = time.Duration(*timeoutSec) * time.Second
 	serversPool = []Server{
-		Server { Url: "server1:8080", Alive: false, Connections: 0 },
-		Server { Url: "server2:8080", Alive: false, Connections: 0 },
-		Server { Url: "server3:8080", Alive: false, Connections: 0 },
+		Server{Url: "server1:8080", Alive: false, Connections: 0},
+		Server{Url: "server2:8080", Alive: false, Connections: 0},
+		Server{Url: "server3:8080", Alive: false, Connections: 0},
 	}
 )
 
@@ -57,7 +57,9 @@ func health(dst string) bool {
 	return true
 }
 
-func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
+func forward(server int, rw http.ResponseWriter, r *http.Request) error {
+	serversPool[server].Connections++
+	dst := serversPool[server].Url
 	ctx, _ := context.WithTimeout(r.Context(), timeout)
 	fwdRequest := r.Clone(ctx)
 	fwdRequest.RequestURI = ""
@@ -82,12 +84,24 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			log.Printf("Failed to write response: %s", err)
 		}
+		serversPool[server].Connections--
 		return nil
 	} else {
 		log.Printf("Failed to get response from %s: %s", dst, err)
 		rw.WriteHeader(http.StatusServiceUnavailable)
+		serversPool[server].Connections--
 		return err
 	}
+}
+
+func chooseServer(pool []Server) int {
+	res := 0
+	for i := range serversPool {
+		if serversPool[i].Connections < serversPool[res].Connections {
+			res = i
+		}
+	}
+	return res
 }
 
 func main() {
@@ -104,7 +118,7 @@ func main() {
 
 	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		// TODO: Рееалізуйте свій алгоритм балансувальника.
-		forward(serversPool[0].Url, rw, r)
+		forward(chooseServer(serversPool), rw, r)
 	}))
 
 	log.Println("Starting load balancer...")

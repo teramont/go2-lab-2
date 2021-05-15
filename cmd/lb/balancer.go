@@ -96,12 +96,20 @@ func forward(server int, rw http.ResponseWriter, r *http.Request) error {
 
 func chooseServer(pool []Server) int {
 	res := 0
-	for i := range serversPool {
-		if serversPool[i].Connections < serversPool[res].Connections {
-			res = i
+	alive := 0
+	for i := range pool {
+		if pool[i].Alive {
+			alive++
+			if pool[i].Connections < pool[res].Connections {
+				res = i
+			}
 		}
 	}
-	return res
+	if alive == 0 {
+		return -1
+	} else {
+		return res
+	}
 }
 
 func main() {
@@ -117,8 +125,12 @@ func main() {
 	}
 
 	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		// TODO: Рееалізуйте свій алгоритм балансувальника.
-		forward(chooseServer(serversPool), rw, r)
+		i := chooseServer(serversPool)
+		if i < 0 {
+			rw.WriteHeader(http.StatusServiceUnavailable)
+		} else {
+			forward(i, rw, r)
+		}
 	}))
 
 	log.Println("Starting load balancer...")

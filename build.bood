@@ -1,7 +1,7 @@
-go_binary {
+go_testbin {
   name: "server",
-  // TODO: Відкорегуйте ім'я пакета.
-  pkg: "github.com/roman-mazur/design-practice-2-template/cmd/server",
+  pkg: "github.com/teramont/go2-lab-2/cmd/server",
+  testPkg: "github.com/teramont/go2-lab-2/cmd/server",
   srcs: [
     "httptools/**/*.go",
     "signal/**/*.go",
@@ -9,16 +9,15 @@ go_binary {
   ]
 }
 
-go_binary {
+go_testbin {
   name: "lb",
-  // TODO: Відкорегуйте ім'я пакета.
   pkg: "github.com/roman-mazur/design-practice-2-template/cmd/lb",
+  testPkg: "github.com/roman-mazur/design-practice-2-template/cmd/lb",
   srcs: [
     "httptools/**/*.go",
     "signal/**/*.go",
     "cmd/lb/*.go"
   ]
-  // TODO: Додайте запуск тестів для балансувальника.
 }
 
 // TODO: Додайте модуль для інтеграційних тестів.

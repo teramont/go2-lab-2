@@ -1,13 +1,15 @@
-FROM golang:1.15 as build
+FROM golang:1.16 as build
 
 RUN apt-get update && apt-get install -y ninja-build
 
-# TODO: Змініть на власну реалізацію системи збірки
-RUN go get -u github.com/roman-mazur/bood/cmd/bood
+WORKDIR /go/src
+RUN git clone https://github.com/teramont/go2-lab-1
+WORKDIR /go/src/go2-lab-1
+RUN go get -u ./build/cmd/bood
 
-WORKDIR /go/src/practice-2
+WORKDIR /go/src/go2-lab-2
 COPY . .
 
-# TODO: Замініть на запуск bood, який призводить до виконання інтеграційних тестів.
-# ENTRYPOINT ["bood", "integration-tests"]
-ENTRYPOINT ["echo", "ok"]
+WORKDIR /go/src/go2-lab-2/integration
+
+ENTRYPOINT bood 2>&1 | tee integration.log

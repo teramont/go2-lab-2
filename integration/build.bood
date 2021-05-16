@@ -1,0 +1,5 @@
+go_testbin {
+  name: "integration",
+  pkg: "github.com/teramont/go2-lab-2/integration",
+  testPkg: "./..."
+}

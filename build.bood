@@ -19,3 +19,13 @@ go_testbin {
     "cmd/lb/*.go"
   ]
 }
+
+go_testbin {
+  name: "db",
+  pkg: "github.com/teramont/go2-lab-2/cmd/db",
+  testPkg: "github.com/teramont/go2-lab-2/cmd/datastore",
+  srcs: [
+    "cmd/db/**/*.go",
+    "cmd/datastore/**/*.go",
+  ]
+}

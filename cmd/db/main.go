@@ -17,7 +17,7 @@ const KB = 1024
 const MB = KB * 1024
 
 var port = flag.Int("p", 8070, "server's port")
-var path = flag.String("d", "db", "database's directory path")
+var path = flag.String("d", "database", "database's directory path")
 var segmentSize = flag.Int("s", 10*MB, "segment size in bytes")
 
 func main() {

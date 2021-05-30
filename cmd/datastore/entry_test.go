@@ -17,18 +17,6 @@ func TestEntry_Encode(t *testing.T) {
 	}
 }
 
-func TestReadValue(t *testing.T) {
-	e := entry{"key", "test-value"}
-	data := e.Encode()
-	v, err := readValue(bufio.NewReader(bytes.NewReader(data)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != "test-value" {
-		t.Errorf("Got bat value [%s]", v)
-	}
-}
-
 func TestReadEntry(t *testing.T) {
 	e := entry{"key", "test-value"}
 	data := e.Encode()
@@ -41,5 +29,15 @@ func TestReadEntry(t *testing.T) {
 	}
 	if entr.value != e.value {
 		t.Errorf("Got bat value [%s]", entr.value)
+	}
+}
+
+func TestFailSum(t *testing.T) {
+	e := entry{"key", "test-value"}
+	data := e.Encode()
+	data[10] = ^data[10] // let's flip some bits
+	_, err := readEntry(bufio.NewReader(bytes.NewReader(data)))
+	if err != ErrHashSumDontMatch {
+		t.Fatalf("Expected error that signatures don't match, but got %s", err)
 	}
 }

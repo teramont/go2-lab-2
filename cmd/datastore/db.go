@@ -144,11 +144,11 @@ func (db *Db) Get(key string) (string, error) {
 	}
 
 	reader := bufio.NewReader(file)
-	value, err := readValue(reader)
+	e, err := readEntry(reader)
 	if err != nil {
 		return "", err
 	}
-	return value, nil
+	return e.value, nil
 }
 
 func (db *Db) pushNewSegment() error {

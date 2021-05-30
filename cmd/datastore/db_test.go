@@ -1,6 +1,7 @@
 package datastore
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -17,6 +18,7 @@ func TestDb_Put(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.Start()
 	defer db.Close()
 
 	pairs := [][]string{
@@ -77,6 +79,7 @@ func TestDb_Put(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		db.Start()
 
 		for _, pair := range pairs {
 			value, err := db.Get(pair[0])
@@ -102,6 +105,7 @@ func TestDb_Merge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.Start()
 	defer db.Close()
 
 	db.SegmentSize(16)
@@ -146,4 +150,67 @@ func TestDb_Merge(t *testing.T) {
 	if len(db.segments) != 2 {
 		t.Fatalf("Expected 2 segments, but got %d", len(db.segments))
 	}
+}
+
+func TestDbPar(t *testing.T) {
+	dir, err := ioutil.TempDir("", "test-db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	db, err := NewDb(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Start()
+	defer db.Close()
+
+	pairs := [][]string{}
+	for i := 0; i < 255; i++ {
+		key := fmt.Sprintf("key%d", i)
+		value := fmt.Sprintf("value%d", i)
+		pairs = append(pairs, []string{key, value})
+	}
+
+	callback := make(chan struct{}, len(pairs))
+
+	t.Run("put", func(t *testing.T) {
+		for _, pair := range pairs {
+			pair := pair
+			go func() {
+				err := db.Put(pair[0], pair[1])
+				if err != nil {
+					t.Errorf("Cannot put %s: %s", pairs[0], err)
+				}
+				callback <- struct{}{}
+			}()
+		}
+	})
+
+	// wait for all threads
+	for i := 0; i < len(pairs); i++ {
+		<-callback
+	}
+	callback = make(chan struct{}, len(pairs))
+
+	t.Run("get", func(t *testing.T) {
+		for _, pair := range pairs {
+			pair := pair
+			go func() {
+				val, err := db.Get(pair[0])
+				if err != nil {
+					t.Errorf("Cannot get %s: %s", pairs[0], err)
+				}
+				if val != pair[1] {
+					t.Errorf("Wrong value. Expected '%s', but got '%s'", pairs[1], val)
+				}
+				callback <- struct{}{}
+			}()
+		}
+
+		for i := 0; i < len(pairs); i++ {
+			<-callback
+		}
+	})
 }

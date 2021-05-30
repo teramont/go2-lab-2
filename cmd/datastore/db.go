@@ -2,7 +2,6 @@ package datastore
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -10,29 +9,44 @@ import (
 )
 
 const outFileName = "current-data"
+const KB = 1024
+const MB = 1024 * KB
+const defaultSegmentSize = 10 * MB
 
 var ErrNotFound = fmt.Errorf("record does not exist")
 
-type hashIndex map[string]int64
+type hashIndexEntry struct {
+	segmentName *string // pointer into db.segments array
+	offset      int64
+}
+
+type hashIndex map[string]hashIndexEntry
 
 type Db struct {
-	out *os.File
-	outPath string
-	outOffset int64
+	dir     string
+	out     *os.File
+	offset  int64
+	maxSize int64
+
+	segments []string
 
 	index hashIndex
 }
 
 func NewDb(dir string) (*Db, error) {
 	outputPath := filepath.Join(dir, outFileName)
-	f, err := os.OpenFile(outputPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+	out, err := os.OpenFile(outputPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, err
 	}
+
 	db := &Db{
-		outPath: outputPath,
-		out:     f,
-		index:   make(hashIndex),
+		dir:      dir,
+		out:      out,
+		offset:   0,
+		maxSize:  defaultSegmentSize,
+		segments: []string{outputPath},
+		index:    make(hashIndex),
 	}
 	err = db.recover()
 	if err != nil && err != io.EOF {
@@ -41,51 +55,58 @@ func NewDb(dir string) (*Db, error) {
 	return db, nil
 }
 
+// Sets max size of the segment. Returns *db for the chaining
+func (db *Db) MaxSize(max int64) *Db {
+	db.maxSize = max
+	return db
+}
+
 const bufSize = 8192
 
 func (db *Db) recover() error {
-	input, err := os.Open(db.outPath)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
+	// 	input, err := os.Open(db.outPath)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	defer input.Close()
 
-	var buf [bufSize]byte
-	in := bufio.NewReaderSize(input, bufSize)
-	for err == nil {
-		var (
-			header, data []byte
-			n int
-		)
-		header, err = in.Peek(bufSize)
-		if err == io.EOF {
-			if len(header) == 0 {
-				return err
-			}
-		} else if err != nil {
-			return err
-		}
-		size := binary.LittleEndian.Uint32(header)
+	// 	var buf [bufSize]byte
+	// 	in := bufio.NewReaderSize(input, bufSize)
+	// 	for err == nil {
+	// 		var (
+	// 			header, data []byte
+	// 			n            int
+	// 		)
+	// 		header, err = in.Peek(bufSize)
+	// 		if err == io.EOF {
+	// 			if len(header) == 0 {
+	// 				return err
+	// 			}
+	// 		} else if err != nil {
+	// 			return err
+	// 		}
+	// 		size := binary.LittleEndian.Uint32(header)
 
-		if size < bufSize {
-			data = buf[:size]
-		} else {
-			data = make([]byte, size)
-		}
-		n, err = in.Read(data)
+	// 		if size < bufSize {
+	// 			data = buf[:size]
+	// 		} else {
+	// 			data = make([]byte, size)
+	// 		}
+	// 		n, err = in.Read(data)
 
-		if err == nil {
-			if n != int(size) {
-				return fmt.Errorf("corrupted file")
-			}
+	// 		if err == nil {
+	// 			if n != int(size) {
+	// 				return fmt.Errorf("corrupted file")
+	// 			}
 
-			var e entry
-			e.Decode(data)
-			db.index[e.key] = db.outOffset
-			db.outOffset += int64(n)
-		}
-	}
-	return err
+	// 			var e entry
+	// 			e.Decode(data)
+	// 			db.index[e.key] = db.outOffset
+	// 			db.outOffset += int64(n)
+	// 		}
+	// 	}
+	// 	return err
+	return nil
 }
 
 func (db *Db) Close() error {
@@ -98,13 +119,13 @@ func (db *Db) Get(key string) (string, error) {
 		return "", ErrNotFound
 	}
 
-	file, err := os.Open(db.outPath)
+	file, err := os.Open(*position.segmentName)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
 
-	_, err = file.Seek(position, 0)
+	_, err = file.Seek(position.offset, 0)
 	if err != nil {
 		return "", err
 	}
@@ -124,8 +145,12 @@ func (db *Db) Put(key, value string) error {
 	}
 	n, err := db.out.Write(e.Encode())
 	if err == nil {
-		db.index[key] = db.outOffset
-		db.outOffset += int64(n)
+		entry := hashIndexEntry{
+			segmentName: &db.segments[len(db.segments)-1],
+			offset:      db.offset,
+		}
+		db.index[key] = entry
+		db.offset += int64(n)
 	}
 	return err
 }

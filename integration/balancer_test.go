@@ -27,7 +27,7 @@ var _ = Suite(&IntegrationSuite{})
 func (s *IntegrationSuite) TestBalancer(c *C) {
 	var srv string
 	for i := 0; i < 9; i++ {
-		resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
+		resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data?key=zbs-team", baseAddress))
 		c.Assert(err, IsNil)
 
 		c.Assert(resp.StatusCode, Equals, http.StatusOK)
@@ -42,7 +42,7 @@ func (s *IntegrationSuite) TestBalancer(c *C) {
 
 func (s *IntegrationSuite) BenchmarkBalancer(c *C) {
 	for i := 0; i < c.N; i++ {
-		resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
+		resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data?key=zbs-team", baseAddress))
 		c.Assert(err, IsNil)
 		c.Assert(resp.StatusCode, Equals, http.StatusOK)
 	}

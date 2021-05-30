@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/roman-mazur/design-practice-2-template/httptools"
-	"github.com/roman-mazur/design-practice-2-template/signal"
+	"github.com/teramont/go2-lab-2/httptools"
+	"github.com/teramont/go2-lab-2/signal"
 )
 
 type Server struct {

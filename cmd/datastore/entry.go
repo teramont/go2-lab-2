@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"io"
 )
 
 type entry struct {
@@ -66,4 +67,39 @@ func readValue(in *bufio.Reader) (string, error) {
 	}
 
 	return string(data), nil
+}
+
+func readEntry(in *bufio.Reader) (*entry, error) {
+	var header [8]byte
+	_, err := io.ReadFull(in, header[:])
+	if err != nil {
+		return nil, err
+	}
+
+	keySize := int(binary.LittleEndian.Uint32(header[4:]))
+	key := make([]byte, keySize)
+
+	_, err = io.ReadFull(in, key)
+	if err != nil {
+		return nil, err
+	}
+
+	var valueHeader [4]byte
+	_, err = io.ReadFull(in, valueHeader[:])
+
+	if err != nil {
+		return nil, err
+	}
+	valueSize := int(binary.LittleEndian.Uint32(valueHeader[:]))
+	value := make([]byte, valueSize)
+	_, err = io.ReadFull(in, value)
+
+	if err != nil {
+		return nil, err
+	}
+	entr := entry{
+		key:   string(key),
+		value: string(value),
+	}
+	return &entr, nil
 }

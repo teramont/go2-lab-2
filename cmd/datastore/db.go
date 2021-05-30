@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -33,17 +35,19 @@ type Db struct {
 
 	segments []string
 
-	index hashIndex
+	indexMutex sync.Mutex
+	index      hashIndex
 }
 
 func NewDb(dir string) (*Db, error) {
 	db := &Db{
-		dir:      dir,
-		out:      nil,
-		offset:   0,
-		maxSize:  defaultSegmentSize,
-		segments: []string{},
-		index:    make(hashIndex),
+		dir:        dir,
+		out:        nil,
+		offset:     0,
+		maxSize:    defaultSegmentSize,
+		segments:   []string{},
+		index:      make(hashIndex),
+		indexMutex: sync.Mutex{},
 	}
 	err := db.recover()
 	if err != nil && err != io.EOF {
@@ -144,7 +148,9 @@ func (db *Db) Close() error {
 }
 
 func (db *Db) Get(key string) (string, error) {
+	db.indexMutex.Lock()
 	position, ok := db.index[key]
+	db.indexMutex.Unlock()
 	if !ok {
 		return "", ErrNotFound
 	}
@@ -174,16 +180,25 @@ func (db *Db) pushNewSegment() error {
 			return err
 		}
 	}
-	filename := fmt.Sprintf("segment-%d", time.Now().Unix())
-	filepath := filepath.Join(db.dir, filename)
-	file, err := os.OpenFile(filepath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+	filepath, file, err := db.openNewSegment()
 	if err != nil {
 		return err
 	}
 	db.segments = append(db.segments, filepath)
 	db.out = file
 	db.offset = 0
+
+	if len(db.segments) >= 3 {
+		return db.mergeSegments()
+	}
 	return nil
+}
+
+func (db *Db) openNewSegment() (string, *os.File, error) {
+	filename := nextSegName()
+	filepath := filepath.Join(db.dir, filename)
+	file, err := os.OpenFile(filepath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+	return filepath, file, err
 }
 
 func (db *Db) Put(key, value string) error {
@@ -205,4 +220,95 @@ func (db *Db) Put(key, value string) error {
 		}
 	}
 	return err
+}
+
+func randStringBytes(n int) string {
+	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	rand.Seed(time.Now().UnixNano())
+
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
+}
+
+func nextSegName() string {
+	return fmt.Sprintf("segment-%s", randStringBytes(10))
+}
+
+func (db *Db) mergeSegments() error {
+	values := make(map[string]string)
+	oldsegments := db.segments[:len(db.segments)-1]
+	for _, filename := range oldsegments {
+		file, err := os.Open(filename)
+		if err != nil {
+			return err
+		}
+		reader := bufio.NewReader(file)
+		defer file.Close()
+		for {
+			entr, err := readEntry(reader)
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				return err
+			}
+			values[entr.key] = entr.value
+		}
+	}
+
+	// Create in default temp directory, so if error happens, file will be cleaned
+	file, err := os.CreateTemp("", "segment-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	// we will rename the file to this name
+	filename := nextSegName()
+	filepth := filepath.Join(db.dir, filename)
+
+	index := make(hashIndex)
+	segments := []string{filepth, db.segments[len(db.segments)-1]}
+
+	var offset int64 = 0
+	if err != nil {
+		return err
+	}
+	for key, value := range values {
+		entr := entry{
+			key:   key,
+			value: value,
+		}
+		_, err := file.Write(entr.Encode())
+		if err != nil {
+			return err
+		}
+		indexEntr := hashIndexEntry{
+			segmentName: &segments[0],
+			offset:      offset,
+		}
+		index[key] = indexEntr
+	}
+
+	err = file.Close()
+	if err != nil {
+		return err
+	}
+	err = os.Rename(file.Name(), filepth)
+	if err != nil {
+		return err
+	}
+
+	db.indexMutex.Lock()
+	db.segments = segments
+	db.indexMutex.Unlock()
+
+	for _, seg := range oldsegments {
+		err = os.Remove(seg)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

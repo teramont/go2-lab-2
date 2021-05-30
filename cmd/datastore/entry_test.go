@@ -28,3 +28,18 @@ func TestReadValue(t *testing.T) {
 		t.Errorf("Got bat value [%s]", v)
 	}
 }
+
+func TestReadEntry(t *testing.T) {
+	e := entry{"key", "test-value"}
+	data := e.Encode()
+	entr, err := readEntry(bufio.NewReader(bytes.NewReader(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entr.key != e.key {
+		t.Errorf("Got bat key [%s]", entr.key)
+	}
+	if entr.value != e.value {
+		t.Errorf("Got bat value [%s]", entr.value)
+	}
+}

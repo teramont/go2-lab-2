@@ -20,6 +20,12 @@ const headerLen = 8 + sha1Len
 
 var ErrHashSumDontMatch = fmt.Errorf("hashsums don't match")
 
+// Entry is serialized as follows:
+// ------------------------------------------------------------
+// | 4 bytes  |  4 bytes   | key_size | value_size | 20 bytes |
+// ------------------------------------------------------------
+// | key_size | value_size |   key    |   value    | sha1sum  |
+// ------------------------------------------------------------
 func (e *entry) Encode() []byte {
 	kl := len(e.key)
 	vl := len(e.value)

@@ -2,10 +2,13 @@ package datastore
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 const outFileName = "current-data"
@@ -64,49 +67,78 @@ func (db *Db) MaxSize(max int64) *Db {
 const bufSize = 8192
 
 func (db *Db) recover() error {
-	// 	input, err := os.Open(db.outPath)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	defer input.Close()
+	files, err := ioutil.ReadDir(db.dir)
+	if err != nil {
+		return err
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].ModTime().Before(files[j].ModTime())
+	})
 
-	// 	var buf [bufSize]byte
-	// 	in := bufio.NewReaderSize(input, bufSize)
-	// 	for err == nil {
-	// 		var (
-	// 			header, data []byte
-	// 			n            int
-	// 		)
-	// 		header, err = in.Peek(bufSize)
-	// 		if err == io.EOF {
-	// 			if len(header) == 0 {
-	// 				return err
-	// 			}
-	// 		} else if err != nil {
-	// 			return err
-	// 		}
-	// 		size := binary.LittleEndian.Uint32(header)
+	for _, file := range files {
+		path := filepath.Join(db.dir, file.Name())
 
-	// 		if size < bufSize {
-	// 			data = buf[:size]
-	// 		} else {
-	// 			data = make([]byte, size)
-	// 		}
-	// 		n, err = in.Read(data)
+		err = db.recoverSegment(path)
+		if err != nil {
+			return err
+		}
+	}
 
-	// 		if err == nil {
-	// 			if n != int(size) {
-	// 				return fmt.Errorf("corrupted file")
-	// 			}
-
-	// 			var e entry
-	// 			e.Decode(data)
-	// 			db.index[e.key] = db.outOffset
-	// 			db.outOffset += int64(n)
-	// 		}
-	// 	}
-	// 	return err
 	return nil
+}
+
+// Recovers segment, by reading the file and updating the index.
+func (db *Db) recoverSegment(path string) error {
+	input, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+
+	db.segments = append(db.segments, path)
+	currentPath := &db.segments[len(db.segments)-1]
+
+	var buf [bufSize]byte
+	in := bufio.NewReaderSize(input, bufSize)
+	var offset int64 = 0
+	for err == nil {
+		var (
+			header, data []byte
+			n            int
+		)
+		header, err = in.Peek(bufSize)
+		if err == io.EOF {
+			if len(header) == 0 {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+		size := binary.LittleEndian.Uint32(header)
+
+		if size < bufSize {
+			data = buf[:size]
+		} else {
+			data = make([]byte, size)
+		}
+		n, err = in.Read(data)
+
+		if err == nil {
+			if n != int(size) {
+				return fmt.Errorf("corrupted file")
+			}
+
+			var e entry
+			e.Decode(data)
+			indexEntry := hashIndexEntry{
+				segmentName: currentPath,
+				offset:      offset,
+			}
+			db.index[e.key] = indexEntry
+			offset += int64(n)
+		}
+	}
+	return err
 }
 
 func (db *Db) Close() error {

@@ -11,6 +11,9 @@ type entry struct {
 	key, value string
 }
 
+// 4 bytes + 4 bytes + 4 bytes
+const entryHeader = 12
+
 func (e *entry) Encode() []byte {
 	kl := len(e.key)
 	vl := len(e.value)
@@ -102,4 +105,8 @@ func readEntry(in *bufio.Reader) (*entry, error) {
 		value: string(value),
 	}
 	return &entr, nil
+}
+
+func (e *entry) serializedSize() int64 {
+	return entryHeader + int64(len(e.key)) + int64(len(e.value))
 }

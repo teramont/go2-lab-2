@@ -2,7 +2,6 @@ package datastore
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -100,47 +99,24 @@ func (db *Db) recoverSegment(path string) error {
 	db.segments = append(db.segments, path)
 	currentPath := &db.segments[len(db.segments)-1]
 
-	var buf [bufSize]byte
 	in := bufio.NewReaderSize(input, bufSize)
 	var offset int64 = 0
-	for err == nil {
-		var (
-			header, data []byte
-			n            int
-		)
-		header, err = in.Peek(bufSize)
+	for {
+
+		e, err := readEntry(in)
 		if err == io.EOF {
-			if len(header) == 0 {
-				return err
-			}
+			return nil
 		} else if err != nil {
 			return err
 		}
-		size := binary.LittleEndian.Uint32(header)
-
-		if size < bufSize {
-			data = buf[:size]
-		} else {
-			data = make([]byte, size)
+		indexEntry := hashIndexEntry{
+			segmentName: currentPath,
+			offset:      offset,
 		}
-		n, err = in.Read(data)
+		db.index[e.key] = indexEntry
+		offset += e.serializedSize()
 
-		if err == nil {
-			if n != int(size) {
-				return fmt.Errorf("corrupted file")
-			}
-
-			var e entry
-			e.Decode(data)
-			indexEntry := hashIndexEntry{
-				segmentName: currentPath,
-				offset:      offset,
-			}
-			db.index[e.key] = indexEntry
-			offset += int64(n)
-		}
 	}
-	return err
 }
 
 func (db *Db) Close() error {

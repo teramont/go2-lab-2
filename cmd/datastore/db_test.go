@@ -3,7 +3,6 @@ package datastore
 import (
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -26,7 +25,8 @@ func TestDb_Put(t *testing.T) {
 		{"key3", "value3"},
 	}
 
-	outFile, err := os.Open(filepath.Join(dir, outFileName))
+	filename := db.segments[len(db.segments)-1]
+	outFile, err := os.Open(filename)
 	if err != nil {
 		t.Fatal(err)
 	}

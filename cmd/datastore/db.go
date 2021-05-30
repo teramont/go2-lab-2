@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 )
 
-const outFileName = "current-data"
 const KB = 1024
 const MB = 1024 * KB
 const defaultSegmentSize = 10 * MB
@@ -37,29 +37,27 @@ type Db struct {
 }
 
 func NewDb(dir string) (*Db, error) {
-	outputPath := filepath.Join(dir, outFileName)
-	out, err := os.OpenFile(outputPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
-	if err != nil {
-		return nil, err
-	}
-
 	db := &Db{
 		dir:      dir,
-		out:      out,
+		out:      nil,
 		offset:   0,
 		maxSize:  defaultSegmentSize,
-		segments: []string{outputPath},
+		segments: []string{},
 		index:    make(hashIndex),
 	}
-	err = db.recover()
+	err := db.recover()
 	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	err = db.pushNewSegment()
+	if err != nil {
 		return nil, err
 	}
 	return db, nil
 }
 
 // Sets max size of the segment. Returns *db for the chaining
-func (db *Db) MaxSize(max int64) *Db {
+func (db *Db) SegmentSize(max int64) *Db {
 	db.maxSize = max
 	return db
 }
@@ -170,6 +168,24 @@ func (db *Db) Get(key string) (string, error) {
 	return value, nil
 }
 
+func (db *Db) pushNewSegment() error {
+	if db.out != nil {
+		if err := db.out.Close(); err != nil {
+			return err
+		}
+	}
+	filename := fmt.Sprintf("segment-%d", time.Now().Unix())
+	filepath := filepath.Join(db.dir, filename)
+	file, err := os.OpenFile(filepath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	db.segments = append(db.segments, filepath)
+	db.out = file
+	db.offset = 0
+	return nil
+}
+
 func (db *Db) Put(key, value string) error {
 	e := entry{
 		key:   key,
@@ -183,6 +199,10 @@ func (db *Db) Put(key, value string) error {
 		}
 		db.index[key] = entry
 		db.offset += int64(n)
+
+		if db.offset >= db.maxSize {
+			return db.pushNewSegment()
+		}
 	}
 	return err
 }

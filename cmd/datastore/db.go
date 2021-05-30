@@ -20,8 +20,8 @@ const defaultSegmentSize = 10 * MB
 var ErrNotFound = fmt.Errorf("record does not exist")
 
 type hashIndexEntry struct {
-	segmentName *string // pointer into db.segments array
-	offset      int64
+	segmentIdx int // index into db.segments array
+	offset     int64
 }
 
 type hashIndex map[string]hashIndexEntry
@@ -97,7 +97,7 @@ func (db *Db) recoverSegment(path string) error {
 	defer input.Close()
 
 	db.segments = append(db.segments, path)
-	currentPath := &db.segments[len(db.segments)-1]
+	currentIdx := len(db.segments) - 1
 
 	in := bufio.NewReaderSize(input, bufSize)
 	var offset int64 = 0
@@ -110,8 +110,8 @@ func (db *Db) recoverSegment(path string) error {
 			return err
 		}
 		indexEntry := hashIndexEntry{
-			segmentName: currentPath,
-			offset:      offset,
+			segmentIdx: currentIdx,
+			offset:     offset,
 		}
 		db.index[e.key] = indexEntry
 		offset += e.serializedSize()
@@ -131,7 +131,8 @@ func (db *Db) Get(key string) (string, error) {
 		return "", ErrNotFound
 	}
 
-	file, err := os.Open(*position.segmentName)
+	segName := &db.segments[position.segmentIdx]
+	file, err := os.Open(*segName)
 	if err != nil {
 		return "", err
 	}
@@ -185,8 +186,8 @@ func (db *Db) Put(key, value string) error {
 	n, err := db.out.Write(e.Encode())
 	if err == nil {
 		entry := hashIndexEntry{
-			segmentName: &db.segments[len(db.segments)-1],
-			offset:      db.offset,
+			segmentIdx: len(db.segments) - 1,
+			offset:     db.offset,
 		}
 		db.index[key] = entry
 		db.offset += int64(n)
@@ -261,8 +262,8 @@ func (db *Db) mergeSegments() error {
 			return err
 		}
 		indexEntr := hashIndexEntry{
-			segmentName: &segments[0],
-			offset:      offset,
+			segmentIdx: 0, // resulted segment is the first in the array
+			offset:     offset,
 		}
 		index[key] = indexEntr
 	}

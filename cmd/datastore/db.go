@@ -10,12 +10,17 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const KB = 1024
 const MB = 1024 * KB
 const defaultSegmentSize = 10 * MB
+
+// value for db.started flag
+const STARTED = 0xbeef
+const CLOSED = 0xdead
 
 var ErrNotFound = fmt.Errorf("record does not exist")
 
@@ -36,6 +41,15 @@ type Db struct {
 
 	indexMutex sync.Mutex
 	index      hashIndex
+
+	started   uint32 // flag whether the writing thread has started
+	closed    uint32 // flag whether the db is closed to prevent double closing of the channel
+	writeChan chan writeRequest
+}
+
+type writeRequest struct {
+	key, value string
+	callback   chan error
 }
 
 func NewDb(dir string) (*Db, error) {
@@ -47,6 +61,8 @@ func NewDb(dir string) (*Db, error) {
 		segments:   []string{},
 		index:      make(hashIndex),
 		indexMutex: sync.Mutex{},
+		started:    0,
+		writeChan:  make(chan writeRequest),
 	}
 	err := db.recover()
 	if err != nil && err != io.EOF {
@@ -120,6 +136,10 @@ func (db *Db) recoverSegment(path string) error {
 }
 
 func (db *Db) Close() error {
+	if !atomic.CompareAndSwapUint32(&db.closed, 0, CLOSED) {
+		return nil
+	}
+	close(db.writeChan)
 	return db.out.Close()
 }
 
@@ -178,7 +198,7 @@ func (db *Db) openNewSegment() (string, *os.File, error) {
 	return filepath, file, err
 }
 
-func (db *Db) Put(key, value string) error {
+func (db *Db) putUnsafe(key, value string) error {
 	e := entry{
 		key:   key,
 		value: value,
@@ -288,4 +308,33 @@ func (db *Db) mergeSegments() error {
 		}
 	}
 	return nil
+}
+
+// Start write thread. Without it, db will not work
+func (db *Db) Start() {
+	// only one thread should be started
+	if !atomic.CompareAndSwapUint32(&db.started, 0, STARTED) {
+		return
+	}
+	go func() {
+		for {
+			req, ok := <-db.writeChan
+			if !ok {
+				return
+			}
+			err := db.putUnsafe(req.key, req.value)
+			req.callback <- err
+		}
+	}()
+}
+
+func (db *Db) Put(key, value string) error {
+	callback := make(chan error)
+	req := writeRequest{
+		key:      key,
+		value:    value,
+		callback: callback,
+	}
+	db.writeChan <- req
+	return <-callback
 }
